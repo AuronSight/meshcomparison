@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8" />
-<title>Fixed Pairwise 3D Mesh Comparison</title>
+<title>Pairwise 3D Mesh Comparison</title>
 <meta name="viewport" content="width=device-width,initial-scale=1.0" />
 <style>
 html, body { height:100%; margin:0; background:#0f1720; overflow:hidden; font-family:Arial,Helvetica,sans-serif; }
@@ -28,6 +28,8 @@ button { cursor:pointer; }
 }
 #exportButtons { position:fixed; bottom:12px; right:12px; display:block; z-index:40; }
 .btn { background:#0ea5ff; border:none; color:#012; padding:6px 10px; border-radius:6px; margin:4px 2px; font-weight:700; }
+
+#log { display:none !important; }
 </style>
 </head>
 <body>
@@ -121,7 +123,7 @@ const loader=new STLLoader(), cache={}, results=[], thumbs={};
 const pairLabel=document.getElementById('pairLabel'), progress=document.getElementById('progress'), thumbsDiv=document.getElementById('thumbs'), logDiv=document.getElementById('log');
 
 function log(m){logDiv.innerHTML=`<div>${m}</div>`+logDiv.innerHTML;}
-function progressUpdate(){progress.textContent=`${trialIndex} / ${pairs.length}`;}
+function progressUpdate(){progress.textContent=`${trialIndex+1} / ${pairs.length}`;}
 
 function preload(){
  return Promise.all(
