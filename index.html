@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Fixed Pairwise 3D Mesh Comparison</title>
+<meta name="viewport" content="width=device-width,initial-scale=1.0" />
+<style>
+html, body { height:100%; margin:0; background:#0f1720; overflow:hidden; font-family:Arial,Helvetica,sans-serif; }
+#canvasContainer { display:flex; width:100%; height:100%; }
+canvas { display:block; width:50%; height:100%; }
+
+/* UI Panel */
+#ui {
+  position:fixed; top:12px; left:50%; transform:translateX(-50%);
+  z-index:30; background:rgba(3,7,18,.92); color:#fff; padding:12px; border-radius:10px;
+  box-shadow:0 6px 20px rgba(0,0,0,.6); min-width:260px; text-align:center;
+}
+#ui h3 { margin:0 0 8px 0; font-size:16px; }
+button { cursor:pointer; }
+.choice { background:#16d39a; color:#012; padding:8px 12px; border-radius:8px; border:none; font-weight:700; margin:6px 4px; }
+#progress { margin-top:8px; font-size:13px; }
+#thumbs { margin-top:8px; display:flex; gap:8px; flex-wrap:wrap; justify-content:center; max-width:300px; margin-left:auto; margin-right:auto;}
+.thumb { width:48px; height:48px; object-fit:cover; border-radius:4px; border:1px solid rgba(255,255,255,0.08); }
+
+/* Log + export buttons */
+#log { position:fixed; bottom:12px; left:50%; transform:translateX(-50%); z-index:30;
+  background:rgba(0,0,0,.55); color:#fff; padding:10px; border-radius:8px; max-width:600px; max-height:180px; overflow:auto; font-size:12px;
+}
+#exportButtons { position:fixed; bottom:12px; right:12px; display:block; z-index:40; }
+.btn { background:#0ea5ff; border:none; color:#012; padding:6px 10px; border-radius:6px; margin:4px 2px; font-weight:700; }
+</style>
+</head>
+<body>
+
+<div id="canvasContainer">
+  <canvas id="canvasL"></canvas>
+  <canvas id="canvasR"></canvas>
+</div>
+
+<div id="ui">
+  <h3>Mesh Pair Comparison</h3>
+  <div><b>Pair:</b> <span id="pairLabel">loading...</span></div>
+  <div id="progress">0 / 0</div>
+  <hr style="border:none;border-top:1px solid rgba(255,255,255,0.07);margin:8px 0;">
+  <div><b>Which is better?</b></div>
+  <button class="choice" id="leftBetterBtn">◀ Left</button>
+  <button class="choice" id="equalBtn" style="background:#f59e0b">= Equal</button>
+  <button class="choice" id="rightBetterBtn">Right ▶</button>
+
+  <div style="margin-top:10px;"><b>Captured Views</b></div>
+  <div id="thumbs"><div style="opacity:.7;font-size:12px">None</div></div>
+</div>
+
+<div id="log"></div>
+
+<div id="exportButtons">
+  <button class="btn" id="downloadCSV">Download CSV</button>
+  <button class="btn" id="downloadJSON">Download JSON</button>
+</div>
+
+
+<!-- THREE JS IMPORTS -->
+<script async src="https://unpkg.com/es-module-shims@1.6.0/dist/es-module-shims.js"></script>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.159.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.159.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+
+const canvasL=document.getElementById('canvasL'), canvasR=document.getElementById('canvasR');
+const rendererL=new THREE.WebGLRenderer({canvas:canvasL,antialias:true});
+const rendererR=new THREE.WebGLRenderer({canvas:canvasR,antialias:true});
+[rendererL,rendererR].forEach(r=>{r.setPixelRatio(devicePixelRatio);r.setSize(innerWidth/2,innerHeight);r.outputColorSpace=THREE.SRGBColorSpace;});
+
+const sceneL=new THREE.Scene(), sceneR=new THREE.Scene();
+sceneL.background=sceneR.background=new THREE.Color(0x0b1122);
+
+const camera=new THREE.PerspectiveCamera(60,innerWidth/(2*innerHeight),0.05,200);
+camera.position.set(0,1.2,2.8);
+const controls=new OrbitControls(camera,canvasL); controls.target.set(0,0.35,0);
+
+/* ===== Lighting ===== */
+function addLights(s){
+    s.add(new THREE.AmbientLight(0xffffff,0.55));
+    const dl=new THREE.DirectionalLight(0xffffff,1.2);
+    dl.position.set(3,5,3); s.add(dl);
+}
+addLights(sceneL); addLights(sceneR);
+
+
+const normalMeshes=[
+ "01.stl","02.stl","03.stl","04.stl","05.stl",
+  "06.stl","07.stl","08.stl","09.stl","10.stl",
+  "11.stl","12.stl","13.stl","14.stl","15.stl"
+];
+const modifiedMeshes=[
+ "01_m.stl","02_m.stl","03_m.stl","04_m.stl","05_m.stl",
+  "06_m.stl","07_m.stl","08_m.stl","09_m.stl","10_m.stl",
+  "11_m.stl","12_m.stl","13_m.stl","14_m.stl","15_m.stl"
+];
+
+/***** BUILD FIXED PAIRS normal[i] vs modified[i] *****/
+let pairs=[];
+for(let i=0;i<normalMeshes.length;i++){
+  pairs.push({id:`pair_${i+1}`, a:{file:normalMeshes[i]}, b:{file:modifiedMeshes[i]}});
+}
+function shuffle(arr){for(let i=arr.length-1;i>0;i--){let j=Math.floor(Math.random()*(i+1));[arr[i],arr[j]]=[arr[j],arr[i]];}}
+
+/*** Runtime variables ***/
+shuffle(pairs);
+let trialIndex=0, leftIsA=true, leftMesh=null, rightMesh=null;
+const loader=new STLLoader(), cache={}, results=[], thumbs={};
+const pairLabel=document.getElementById('pairLabel'), progress=document.getElementById('progress'), thumbsDiv=document.getElementById('thumbs'), logDiv=document.getElementById('log');
+
+function log(m){logDiv.innerHTML=`<div>${m}</div>`+logDiv.innerHTML;}
+function progressUpdate(){progress.textContent=`${trialIndex} / ${pairs.length}`;}
+
+function preload(){
+ return Promise.all(
+   [...normalMeshes,...modifiedMeshes].map(f=>new Promise(res=>{
+     loader.load(f,g=>{g.computeVertexNormals();cache[f]=g;res();},undefined,()=>res());
+   }))
+ );
+}
+function createMesh(file){
+ if(!cache[file]) return null;
+ let m=new THREE.Mesh(cache[file].clone(), new THREE.MeshStandardMaterial({color:0xffffff,roughness:0.35}));
+ m.rotation.x=-Math.PI/2; m.scale.set(.5,.5,.5); return m;
+}
+function frameBoth(L,R){
+ const box=new THREE.Box3();
+ if(L) box.expandByObject(L); if(R) box.expandByObject(R);
+ const size=box.getSize(new THREE.Vector3()).length(), center=box.getCenter(new THREE.Vector3());
+ camera.position.set(center.x, center.y+1.1, center.z+size*1.5);
+ controls.target.copy(center);controls.update();
+}
+
+/* Load next pair */
+function loadTrial(){
+ if(trialIndex>=pairs.length){pairLabel.textContent="(Done)";return;}
+ let p=pairs[trialIndex];
+ leftIsA=Math.random()<.5;
+ let L=leftIsA?p.a:p.b, R=leftIsA?p.b:p.a;
+
+ if(leftMesh)sceneL.remove(leftMesh);
+ if(rightMesh)sceneR.remove(rightMesh);
+
+ leftMesh=createMesh(L.file); rightMesh=createMesh(R.file);
+ if(leftMesh)sceneL.add(leftMesh); if(rightMesh)sceneR.add(rightMesh);
+
+ pairLabel.textContent=`Pair ${p.id}`;
+ progressUpdate();
+ setTimeout(()=>frameBoth(leftMesh,rightMesh),80);
+}
+
+/*** Saving responses ***/
+function thumbnail(){rendererL.render(sceneL,camera);return canvasL.toDataURL("image/png");}
+function save(choice){
+ let p=pairs[trialIndex], t=thumbnail();
+ results.push({pair:p.id,leftIsNormalA:leftIsA?1:0,choice,time:new Date().toISOString(),thumb:t});
+ (thumbs[p.id]??=[]).push(t);
+ renderThumbs(p.id);
+ log(`Saved → ${p.id} : ${choice}`);
+ trialIndex++; loadTrial();
+}
+
+function renderThumbs(id){
+ thumbsDiv.innerHTML="";
+ for(let img of thumbs[id]||[]){let e=document.createElement("img");e.src=img;e.className="thumb";thumbsDiv.appendChild(e);}
+ if((thumbs[id]||[]).length===0)thumbsDiv.innerHTML="<div style='opacity:.6'>None</div>";
+}
+
+/*** Buttons ***/
+document.getElementById("leftBetterBtn").onclick=()=>save("left");
+document.getElementById("rightBetterBtn").onclick=()=>save("right");
+document.getElementById("equalBtn").onclick=()=>save("equal");
+
+/*** Export Buttons ***/
+document.getElementById("downloadCSV").onclick=()=>{
+ if(results.length===0)return alert("No results");
+ let rows=["pair,leftSideIsNormal,choice,time"];
+ results.forEach(r=>rows.push([r.pair,r.leftIsNormalA,r.choice,r.time].join(",")));
+ let a=document.createElement("a");
+ a.href=URL.createObjectURL(new Blob([rows.join("\n")],{type:"text/csv"}));
+ a.download="mesh_results.csv"; a.click();
+};
+document.getElementById("downloadJSON").onclick=()=>{
+ let a=document.createElement("a");
+ a.href=URL.createObjectURL(new Blob([JSON.stringify(results)],{type:"application/json"}));
+ a.download="mesh_results.json"; a.click();
+};
+
+/*** Render Loop ***/
+rendererL.setAnimationLoop(()=>{rendererL.render(sceneL,camera);rendererR.render(sceneR,camera);});
+onresize=()=>{rendererL.setSize(innerWidth/2,innerHeight);rendererR.setSize(innerWidth/2,innerHeight);camera.aspect=(innerWidth/2)/innerHeight;camera.updateProjectionMatrix();};
+
+/*** Start ***/
+(async()=>{await preload();log("Loaded All Meshes");loadTrial();})();
+</script>
+</body>
+</html>
